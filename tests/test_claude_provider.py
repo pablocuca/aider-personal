@@ -91,12 +91,33 @@ def test_missing_binary_clear_error(tmp_path):
 
 
 def test_missing_required_flag_in_help(tmp_path):
+    # O fake também rejeita a flag na sonda do parser, como um CLI que
+    # realmente não a suporta.
+    body = (
+        "sys.stderr.write(\"error: unknown option '%s'\" % sys.argv[1])\n"
+        "sys.exit(1)\n"
+    )
     binary = _make_fake_claude(
-        tmp_path, "print('{}')\n", help_text="Usage: claude\n  --model  --output-format"
+        tmp_path, body, help_text="Usage: claude\n  --model  --output-format"
     )
     provider = _provider(binary)
     with pytest.raises(ProviderError, match="não suporta as flags"):
         provider.complete("prompt")
+
+
+def test_flag_absent_from_help_but_accepted_by_parser(tmp_path):
+    """Regressão: --max-turns sumiu do --help do Claude Code 2.x sem deixar
+    de existir — a validação não pode dar falso negativo."""
+    help_text = "Usage: claude\n  --model  --output-format  --max-budget-usd"
+    body = (
+        "if len(sys.argv) == 2:\n"  # sonda: `claude <flag>` sem valor
+        "    sys.stderr.write(\"error: option '%s <n>' argument missing\" % sys.argv[1])\n"
+        "    sys.exit(1)\n"
+        f"print(json.dumps({SUCCESS_PAYLOAD!r}))\n"
+    )
+    provider = _provider(_make_fake_claude(tmp_path, body, help_text=help_text))
+    response = provider.complete("prompt")
+    assert response.cost_usd == pytest.approx(0.0421)
 
 
 def test_auth_error_guides_login(tmp_path):
