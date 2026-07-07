@@ -3,11 +3,14 @@
 Regras críticas implementadas aqui:
 1. `subprocess.run` sem shell=True; prompt via STDIN (nunca argumento).
 2. Comportamento agêntico neutralizado: ferramentas desabilitadas via
-   `--disallowed-tools "*"`, `--max-turns 1`, cwd em diretório neutro/vazio —
-   todo o contexto vai no prompt. Sem isso, o modelo tenta usar ferramentas em
-   perguntas sobre o projeto, o turno único acaba em tool_use e a chamada morre
-   em error_max_turns. (`--tools ""` teria o mesmo efeito, mas dispara DLP em
-   gateways corporativos — ver PR #8.)
+   `--tools NoOp` (nome inexistente → conjunto efetivo vazio), `--max-turns 1`,
+   cwd em diretório neutro/vazio — todo o contexto vai no prompt. Sem isso, o
+   modelo tenta usar ferramentas em perguntas sobre o projeto, o turno único
+   acaba em tool_use e a chamada morre em error_max_turns.
+   Formas descartadas (PRs #8/#9): `--tools ""` e `--disallowed-tools "*"`
+   disparam DLP em gateways corporativos (argumento vazio/curinga); lista
+   explícita em --disallowed-tools não tira as ferramentas da visão do modelo,
+   que insiste nelas a cada negação e estoura o max-turns do mesmo jeito.
 3. Autenticação é do próprio Claude Code (`claude login`); esta ferramenta
    nunca manipula API keys e NÃO usa `--bare`.
 4. `--output-format json`: `result` é a resposta; `total_cost_usd` é o custo
@@ -31,9 +34,7 @@ from providers.base_provider import BaseProvider, ProviderResponse
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_FLAGS = (
-    "--model", "--output-format", "--max-turns", "--max-budget-usd", "--disallowed-tools"
-)
+REQUIRED_FLAGS = ("--model", "--output-format", "--max-turns", "--max-budget-usd", "--tools")
 
 _AUTH_HINTS = ("login", "logged in", "authenticate", "unauthorized", "api key", "oauth")
 _LIMIT_HINTS = ("budget", "max turns", "max-turns", "max_turns", "limit")
@@ -127,9 +128,10 @@ class ClaudeCliProvider(BaseProvider):
             "--output-format", "json",
             "--max-turns", str(self.cfg.max_turns),
             "--max-budget-usd", str(self.cfg.max_budget_usd),
-            # sem ferramentas: resposta direta em 1 turno. Preferido a
-            # `--tools ""` porque o argumento vazio dispara DLP corporativo.
-            "--disallowed-tools", "*",
+            # Sem ferramentas (nome inexistente → conjunto vazio): resposta
+            # direta em 1 turno. `--tools ""` e `--disallowed-tools "*"`
+            # teriam o mesmo efeito, mas disparam DLP corporativo.
+            "--tools", "NoOp",
         ]
 
         # cwd neutro: impede o agente de ler/editar o projeto por conta própria

@@ -20,7 +20,7 @@ from providers.claude_cli_provider import ClaudeCliProvider
 
 HELP_TEXT = (
     "Usage: claude [options]\n"
-    "  --model  --output-format  --max-turns  --max-budget-usd  --disallowed-tools"
+    "  --model  --output-format  --max-turns  --max-budget-usd  --tools"
 )
 
 SUCCESS_PAYLOAD = {
@@ -84,10 +84,11 @@ def test_success_parses_result_and_real_cost(tmp_path):
     assert "--max-turns" in argv and "1" in argv
     assert "--max-budget-usd" in argv
     # ferramentas desabilitadas — sem isso o modelo tenta tool_use e a
-    # chamada morre em error_max_turns com --max-turns 1. Via disallowed
-    # (e não `--tools ""`) para não disparar DLP corporativo.
-    assert "--disallowed-tools" in argv
-    assert argv[argv.index("--disallowed-tools") + 1] == "*"
+    # chamada morre em error_max_turns com --max-turns 1. Nome inexistente
+    # (e não `--tools ""` nem `--disallowed-tools "*"`) para não disparar
+    # DLP corporativo com argumento vazio/curinga.
+    assert "--tools" in argv
+    assert argv[argv.index("--tools") + 1] == "NoOp"
     # cwd neutro: nunca o diretório do projeto/teste
     assert invocation["cwd"] != os.getcwd()
     assert "coder-assist-claude-neutral-" in invocation["cwd"]
