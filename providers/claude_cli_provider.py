@@ -8,7 +8,8 @@ Regras críticas implementadas aqui:
    nunca manipula API keys e NÃO usa `--bare`.
 4. `--output-format json`: `result` é a resposta; `total_cost_usd` é o custo
    REAL registrado no banco. stderr é log, nunca controle de fluxo.
-5. Flags exigidas são validadas contra `claude --help` na primeira execução.
+5. Flags exigidas são validadas na primeira execução: contra `claude --help` e,
+   para as ausentes do help (ex.: --max-turns na 2.x), sondando o parser do CLI.
 6. Sem estado entre chamadas (one-shot); `--resume` fica para conversas na V2+.
 """
 
@@ -50,7 +51,7 @@ class ClaudeCliProvider(BaseProvider):
             )
 
     def _validate_flags(self) -> None:
-        """As flags do Claude Code evoluem rápido — valida contra --help uma vez."""
+        """As flags do Claude Code evoluem rápido — valida uma vez, na primeira chamada."""
         if self._flags_validated:
             return
         try:
@@ -63,13 +64,37 @@ class ClaudeCliProvider(BaseProvider):
         except (OSError, subprocess.TimeoutExpired) as e:
             raise ProviderError(f"Não foi possível executar `{self.cfg.binary} --help`: {e}") from e
         help_text = result.stdout + result.stderr
-        missing = [flag for flag in REQUIRED_FLAGS if flag not in help_text]
+        # Flags podem sair do --help sem deixar de existir (o Claude Code 2.x
+        # não lista mais --max-turns, mas continua aceitando). Ausência no
+        # help é só suspeita — confirma sondando o parser do CLI.
+        missing = [
+            flag
+            for flag in REQUIRED_FLAGS
+            if flag not in help_text and self._flag_unknown(flag)
+        ]
         if missing:
             raise ProviderError(
                 f"A versão instalada do Claude Code não suporta as flags {missing}. "
                 "Atualize com: npm update -g @anthropic-ai/claude-code"
             )
         self._flags_validated = True
+
+    def _flag_unknown(self, flag: str) -> bool:
+        """Sonda o parser: `claude <flag>` sem valor responde "unknown option"
+        para flag inexistente e "argument missing" para flag conhecida.
+        Na dúvida (falha da sonda), considera suportada — se não for, a
+        chamada real falha com o erro descritivo de _describe_failure."""
+        try:
+            result = subprocess.run(
+                [self.cfg.binary, flag],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                stdin=subprocess.DEVNULL,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return "unknown option" in (result.stdout + result.stderr).lower()
 
     # --- chamada ------------------------------------------------------------------
 
